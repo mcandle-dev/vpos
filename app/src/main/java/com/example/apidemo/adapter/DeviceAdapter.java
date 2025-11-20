@@ -21,9 +21,18 @@ public class DeviceAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
     private static final int TYPE_ITEM = 1;
     private static final int removeBleTime = 3*1000;//3s内没有重新扫描到,就从列表移除.
     private List<Device> deviceList;
+    private OnDeviceClickListener clickListener;
+
+    public interface OnDeviceClickListener {
+        void onDeviceClick(Device device);
+    }
 
     public DeviceAdapter() {
         this.deviceList = new ArrayList<>();
+    }
+
+    public void setOnDeviceClickListener(OnDeviceClickListener listener) {
+        this.clickListener = listener;
     }
 
     @NonNull
@@ -46,6 +55,13 @@ public class DeviceAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
             ((DeviceViewHolder) holder).macAddressTextView.setText(device.getMacAddress());
             ((DeviceViewHolder) holder).rssiTextView.setText(String.valueOf(device.getRssi()));
             ((DeviceViewHolder) holder).serviceUuidTextView.setText(device.getServiceUuid());
+
+            // Set click listener
+            holder.itemView.setOnClickListener(v -> {
+                if (clickListener != null) {
+                    clickListener.onDeviceClick(device);
+                }
+            });
         }
     }
     @Override

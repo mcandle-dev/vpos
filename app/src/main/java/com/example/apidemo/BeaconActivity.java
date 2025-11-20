@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -18,12 +19,15 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
 import com.example.apidemo.adapter.DeviceAdapter;
+import com.example.apidemo.ble.BleConnection;
 import com.example.apidemo.ble.Device;
 import com.example.apidemo.ble.DividerItemDecoration;
 import com.google.android.material.switchmaterial.SwitchMaterial;
@@ -80,6 +84,11 @@ public class BeaconActivity extends AppCompatActivity implements View.OnClickLis
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.addItemDecoration(new DividerItemDecoration(this));
         recyclerView.setAdapter(deviceAdapter);
+
+        // Set click listener for device list
+        deviceAdapter.setOnDeviceClickListener(device -> {
+            showBleConnectDialog(device);
+        });
 
         flipSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
@@ -833,5 +842,184 @@ private static JSONObject parsePayload(String payload) {
                 mStartFlag = false;
             }
         }.start();
+    }
+
+    private void showBleConnectDialog(Device device) {
+        // Stop scanning before connecting
+        if (startScan) {
+            startScan = false;
+            At.Lib_AtStopScan();
+        }
+
+        // Inflate dialog layout
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_ble_connect, null);
+
+        // Get views
+        TextView tvDeviceName = dialogView.findViewById(R.id.tvDeviceName);
+        TextView tvDeviceMac = dialogView.findViewById(R.id.tvDeviceMac);
+        TextView tvConnectionStatus = dialogView.findViewById(R.id.tvConnectionStatus);
+        ProgressBar progressConnection = dialogView.findViewById(R.id.progressConnection);
+        EditText etSendData = dialogView.findViewById(R.id.etSendData);
+        Button btnConnect = dialogView.findViewById(R.id.btnConnect);
+        Button btnSend = dialogView.findViewById(R.id.btnSend);
+        Button btnDisconnect = dialogView.findViewById(R.id.btnDisconnect);
+        Button btnClose = dialogView.findViewById(R.id.btnClose);
+        TextView tvReceivedLog = dialogView.findViewById(R.id.tvReceivedLog);
+
+        // Set device info
+        String deviceName = device.getDeviceName();
+        if (deviceName == null || deviceName.isEmpty()) {
+            deviceName = "Unknown Device";
+        }
+        tvDeviceName.setText(deviceName);
+        tvDeviceMac.setText(device.getMacAddress());
+
+        // Create BLE connection instance
+        BleConnection bleConnection = new BleConnection();
+
+        // Create dialog
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        // StringBuilder for log
+        StringBuilder logBuilder = new StringBuilder();
+
+        // Helper method to append log
+        Runnable appendLogRunnable = () -> {};
+
+        // Connect button click
+        btnConnect.setOnClickListener(v -> {
+            progressConnection.setVisibility(View.VISIBLE);
+            tvConnectionStatus.setText("연결 중...");
+            tvConnectionStatus.setTextColor(Color.parseColor("#FF9800"));
+            btnConnect.setEnabled(false);
+
+            new Thread(() -> {
+                BleConnection.ConnectionResult result = bleConnection.connectToDevice(device.getMacAddress());
+
+                runOnUiThread(() -> {
+                    progressConnection.setVisibility(View.GONE);
+
+                    if (result.isSuccess()) {
+                        tvConnectionStatus.setText("연결됨 (Handle: " + result.getHandle() + ")");
+                        tvConnectionStatus.setTextColor(Color.parseColor("#4CAF50"));
+                        btnSend.setEnabled(true);
+                        btnDisconnect.setEnabled(true);
+                        btnConnect.setEnabled(false);
+
+                        logBuilder.append("Connected to ").append(device.getMacAddress()).append("\n");
+                        logBuilder.append("Handle: ").append(result.getHandle()).append("\n");
+                        tvReceivedLog.setText(logBuilder.toString());
+
+                        // Scan UUID channels after connection
+                        new Thread(() -> {
+                            BleConnection.UuidScanResult uuidResult = bleConnection.scanUuidChannels();
+                            runOnUiThread(() -> {
+                                if (uuidResult.isSuccess() && uuidResult.getChannels() != null) {
+                                    logBuilder.append("UUID Channels:\n");
+                                    for (BleConnection.UuidChannel channel : uuidResult.getChannels()) {
+                                        logBuilder.append("  CH").append(channel.channelNum)
+                                                .append(": ").append(channel.uuid).append("\n");
+                                    }
+                                    tvReceivedLog.setText(logBuilder.toString());
+
+                                    // Auto set TRX channel if channels found
+                                    if (!uuidResult.getChannels().isEmpty()) {
+                                        // Use first writable channel (this may need adjustment)
+                                        bleConnection.setTrxChannel(1, 2, 0);
+                                        logBuilder.append("TRX Channel set\n");
+                                        tvReceivedLog.setText(logBuilder.toString());
+                                    }
+                                }
+                            });
+                        }).start();
+
+                    } else {
+                        tvConnectionStatus.setText("연결 실패");
+                        tvConnectionStatus.setTextColor(Color.parseColor("#F44336"));
+                        btnConnect.setEnabled(true);
+
+                        logBuilder.append("Connection failed: ").append(result.getError()).append("\n");
+                        tvReceivedLog.setText(logBuilder.toString());
+                    }
+                });
+            }).start();
+        });
+
+        // Send button click
+        btnSend.setOnClickListener(v -> {
+            String sendData = etSendData.getText().toString().trim();
+            if (sendData.isEmpty()) {
+                logBuilder.append("Error: No data to send\n");
+                tvReceivedLog.setText(logBuilder.toString());
+                return;
+            }
+
+            btnSend.setEnabled(false);
+
+            new Thread(() -> {
+                BleConnection.SendResult result = bleConnection.sendData(sendData.getBytes(), 3000);
+
+                runOnUiThread(() -> {
+                    btnSend.setEnabled(true);
+
+                    if (result.isSuccess()) {
+                        logBuilder.append("TX: ").append(sendData).append("\n");
+                        etSendData.setText("");
+                    } else {
+                        logBuilder.append("Send failed: ").append(result.getError()).append("\n");
+                    }
+                    tvReceivedLog.setText(logBuilder.toString());
+                });
+
+                // Try to receive response
+                BleConnection.ReceiveResult recvResult = bleConnection.receiveData(2000);
+                if (recvResult.isSuccess() && recvResult.getData() != null) {
+                    String receivedData = new String(recvResult.getData());
+                    runOnUiThread(() -> {
+                        logBuilder.append("RX: ").append(receivedData).append("\n");
+                        tvReceivedLog.setText(logBuilder.toString());
+                    });
+                }
+            }).start();
+        });
+
+        // Disconnect button click
+        btnDisconnect.setOnClickListener(v -> {
+            new Thread(() -> {
+                boolean success = bleConnection.disconnect();
+
+                runOnUiThread(() -> {
+                    if (success) {
+                        tvConnectionStatus.setText("연결 안됨");
+                        tvConnectionStatus.setTextColor(Color.parseColor("#F44336"));
+                        btnSend.setEnabled(false);
+                        btnDisconnect.setEnabled(false);
+                        btnConnect.setEnabled(true);
+
+                        logBuilder.append("Disconnected\n");
+                        tvReceivedLog.setText(logBuilder.toString());
+                    } else {
+                        logBuilder.append("Disconnect failed\n");
+                        tvReceivedLog.setText(logBuilder.toString());
+                    }
+                });
+            }).start();
+        });
+
+        // Close button click
+        btnClose.setOnClickListener(v -> {
+            // Disconnect if still connected
+            if (bleConnection.isConnected()) {
+                new Thread(() -> {
+                    bleConnection.disconnect();
+                }).start();
+            }
+            dialog.dismiss();
+        });
+
+        dialog.show();
     }
 }
