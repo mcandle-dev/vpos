@@ -112,9 +112,41 @@ public class BleConnection {
     public ConnectionResult connectToDevice(String macAddress) {
         Log.d(TAG, "Connecting to device: " + macAddress);
 
-        // Send AT+CONNECT command
+        // Step 1: Set pairing mode to "Just Works" (no user intervention)
+        String pairCmd = "AT+MASTER_PAIR=3\r\n";
+        Log.i(TAG, "[AT CMD] >>> " + pairCmd.trim());
+        int ret = At.Lib_ComSend(pairCmd.getBytes(), pairCmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
+
+        if (ret != 0) {
+            Log.e(TAG, "Failed to send pairing mode command, ret: " + ret);
+            return new ConnectionResult(false, null, "Failed to set pairing mode: " + ret);
+        }
+
+        // Receive pairing mode response
+        byte[] pairResponse = new byte[256];
+        int[] pairLen = new int[1];
+        ret = At.Lib_ComRecvAT(pairResponse, pairLen, 20, 3000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + pairLen[0]);
+
+        if (ret != 0 || pairLen[0] == 0) {
+            Log.e(TAG, "Failed to receive pairing mode response, ret: " + ret);
+            return new ConnectionResult(false, null, "No response for pairing mode");
+        }
+
+        String pairResponseStr = new String(pairResponse, 0, pairLen[0]);
+        Log.i(TAG, "[AT RSP] <<< " + pairResponseStr.replace("\r\n", "\\r\\n"));
+
+        if (!pairResponseStr.contains("OK")) {
+            Log.e(TAG, "Failed to set pairing mode");
+            return new ConnectionResult(false, null, "Failed to set pairing mode: " + pairResponseStr);
+        }
+
+        // Step 2: Send AT+CONNECT command
         String cmd = "AT+CONNECT=," + macAddress + "\r\n";
-        int ret = At.Lib_AtSendData(cmd.getBytes(), cmd.length());
+        Log.i(TAG, "[AT CMD] >>> " + cmd.trim());
+        ret = At.Lib_ComSend(cmd.getBytes(), cmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             Log.e(TAG, "Failed to send connect command, ret: " + ret);
@@ -125,6 +157,7 @@ public class BleConnection {
         byte[] response = new byte[512];
         int[] len = new int[1];
         ret = At.Lib_ComRecvAT(response, len, 20, 5000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         if (ret != 0 || len[0] == 0) {
             Log.e(TAG, "Failed to receive connect response, ret: " + ret);
@@ -132,7 +165,7 @@ public class BleConnection {
         }
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "Connect response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         // Parse response: "OK\r\n[MAC] CONNECTED [handle]"
         Integer handle = parseConnectResponse(responseStr);
@@ -160,7 +193,9 @@ public class BleConnection {
 
         // Send AT+DISCE command
         String cmd = "AT+DISCE=" + connectionHandle + "\r\n";
-        int ret = At.Lib_AtSendData(cmd.getBytes(), cmd.length());
+        Log.i(TAG, "[AT CMD] >>> " + cmd.trim());
+        int ret = At.Lib_ComSend(cmd.getBytes(), cmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             Log.e(TAG, "Failed to send disconnect command, ret: " + ret);
@@ -171,9 +206,10 @@ public class BleConnection {
         byte[] response = new byte[256];
         int[] len = new int[1];
         ret = At.Lib_ComRecvAT(response, len, 20, 3000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "Disconnect response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         connectionHandle = null;
         return responseStr.contains("OK");
@@ -192,7 +228,9 @@ public class BleConnection {
 
         // Send AT+UUID_SCAN command
         String cmd = "AT+UUID_SCAN=1\r\n";
-        int ret = At.Lib_AtSendData(cmd.getBytes(), cmd.length());
+        Log.i(TAG, "[AT CMD] >>> " + cmd.trim());
+        int ret = At.Lib_ComSend(cmd.getBytes(), cmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             return new UuidScanResult(false, null, "Failed to send command: " + ret);
@@ -202,13 +240,14 @@ public class BleConnection {
         byte[] response = new byte[2048];
         int[] len = new int[1];
         ret = At.Lib_ComRecvAT(response, len, 20, 5000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         if (ret != 0 || len[0] == 0) {
             return new UuidScanResult(false, null, "No response");
         }
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "UUID scan response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         // Parse response: "-CHAR:[num] UUID:[uuid],[properties];"
         List<UuidChannel> channels = parseUuidScanResponse(responseStr);
@@ -234,7 +273,9 @@ public class BleConnection {
         // Send AT+TRX_CHAN command
         String cmd = String.format("AT+TRX_CHAN=%d,%d,%d,%d\r\n",
             connectionHandle, writeCh, notifyCh, type);
-        int ret = At.Lib_AtSendData(cmd.getBytes(), cmd.length());
+        Log.i(TAG, "[AT CMD] >>> " + cmd.trim());
+        int ret = At.Lib_ComSend(cmd.getBytes(), cmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             Log.e(TAG, "Failed to send TRX channel command, ret: " + ret);
@@ -245,9 +286,10 @@ public class BleConnection {
         byte[] response = new byte[256];
         int[] len = new int[1];
         ret = At.Lib_ComRecvAT(response, len, 20, 3000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "TRX channel response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         return responseStr.contains("OK");
     }
@@ -268,7 +310,9 @@ public class BleConnection {
         // Send AT+SEND command
         String cmd = String.format("AT+SEND=%d,%d,%d\r\n",
             connectionHandle, data.length, timeout);
-        int ret = At.Lib_AtSendData(cmd.getBytes(), cmd.length());
+        Log.i(TAG, "[AT CMD] >>> " + cmd.trim());
+        int ret = At.Lib_ComSend(cmd.getBytes(), cmd.length());
+        Log.d(TAG, "[AT CMD] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             return new SendResult(false, "Failed to send command: " + ret);
@@ -278,16 +322,19 @@ public class BleConnection {
         byte[] response = new byte[256];
         int[] len = new int[1];
         ret = At.Lib_ComRecvAT(response, len, 20, 1000);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "Send prompt response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         if (!responseStr.contains("INPUT_BLE_DATA") && !responseStr.contains("OK")) {
             return new SendResult(false, "Unexpected response: " + responseStr);
         }
 
         // Send actual data
-        ret = At.Lib_AtSendData(data, data.length);
+        Log.i(TAG, "[AT DATA] >>> " + new String(data) + " (" + data.length + " bytes)");
+        ret = At.Lib_ComSend(data, data.length);
+        Log.d(TAG, "[AT DATA] Lib_ComSend returned: " + ret);
 
         if (ret != 0) {
             return new SendResult(false, "Failed to send data: " + ret);
@@ -295,8 +342,9 @@ public class BleConnection {
 
         // Wait for confirmation
         ret = At.Lib_ComRecvAT(response, len, 20, timeout);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
         responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "Send data response: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         if (responseStr.contains("OK") || responseStr.contains("SEND_OK")) {
             return new SendResult(true, null);
@@ -315,27 +363,32 @@ public class BleConnection {
             return new ReceiveResult(false, null, "Not connected", false);
         }
 
+        Log.d(TAG, "Waiting to receive data (timeout: " + timeout + "ms)");
         byte[] response = new byte[2048];
         int[] len = new int[1];
         int ret = At.Lib_ComRecvAT(response, len, 20, timeout);
+        Log.d(TAG, "[AT CMD] Lib_ComRecvAT returned: " + ret + ", length: " + len[0]);
 
         if (ret != 0) {
             return new ReceiveResult(false, null, "Receive error: " + ret, false);
         }
 
         if (len[0] == 0) {
+            Log.w(TAG, "[AT RSP] <<< (timeout, no data)");
             return new ReceiveResult(false, null, "Timeout", true);
         }
 
         String responseStr = new String(response, 0, len[0]);
-        Log.d(TAG, "Received data: " + responseStr);
+        Log.i(TAG, "[AT RSP] <<< " + responseStr.replace("\r\n", "\\r\\n"));
 
         // Parse received data
         byte[] data = parseReceivedData(responseStr);
         if (data != null) {
+            Log.d(TAG, "[AT DATA] Parsed " + data.length + " bytes");
             return new ReceiveResult(true, data, null, false);
         } else {
             // Return raw response if can't parse
+            Log.d(TAG, "[AT DATA] Returning raw response (" + len[0] + " bytes)");
             return new ReceiveResult(true, response, null, false);
         }
     }
