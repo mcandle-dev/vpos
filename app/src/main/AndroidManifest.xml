@@ -41,8 +41,14 @@
             android:label="Scan" />
         <activity
             android:name=".BeaconActivity"
-            android:exported="false"
-            android:label="Beacon" />
+            android:exported="true"
+            android:label="Beacon">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".PrintActivity"
             android:exported="false"
@@ -65,13 +71,7 @@
             android:label="Picc" />
         <activity
             android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false" />
 
         <receiver
             android:name=".receiver.BootReceiver"
