@@ -21,6 +21,12 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
+    - name: Download VPOS library from vpos_scanner repo
+      run: |
+        mkdir -p app/libs
+        curl -L -o app/libs/libVpos3893_release_20250930.aar \
+          https://github.com/mcandle-dev/vpos_scanner/raw/master/app/libs/libVpos3893_release_20250930.aar
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
